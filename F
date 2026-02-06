@@ -1,0 +1,238 @@
+Jedziemy 💪
+Poniżej masz wersję 1:1 pod Confluence – w Confluence Markup / Markdown, gotową do wklejenia jako nową stronę.
+Układ, nagłówki i sekcje są dokładnie takie, jakie lubią architekci, Infra i Sec.
+
+⸻
+
+Integrator systemów – platforma integracyjna
+
+Jira Cloud ↔ HPSM (Service Manager) oraz inne systemy
+
+⸻
+
+1. Cel rozwiązania
+
+Celem rozwiązania jest uruchomienie centralnego integratora systemów, umożliwiającego dwukierunkową synchronizację danych i zdarzeń pomiędzy:
+	•	Jira Cloud
+	•	HPSM (Service Manager)
+	•	innymi systemami IT (np. monitoring, CMDB, log management)
+
+Integrator pełni rolę pośrednika aplikacyjnego, bez modyfikacji kodu systemów źródłowych i docelowych.
+
+⸻
+
+2. Zakres (MVP – środowisko TEST)
+
+Obsługiwane kierunki integracji
+	•	Jira Cloud → HPSM
+	•	HPSM → Jira Cloud
+	•	Jira Cloud → systemy zewnętrzne (audyt / raportowanie – opcjonalnie)
+
+Obsługiwane operacje
+	•	utworzenie zgłoszenia
+	•	aktualizacja pól (status, priorytet, opis)
+	•	synchronizacja komentarzy
+	•	mapowanie identyfikatorów referencyjnych
+
+⸻
+
+3. Architektura logiczna
+
+Integrator oparty jest o model event-driven, z wykorzystaniem zunifikowanego formatu danych (canonical event).
+
+System źródłowy
+(Webhook / Polling)
+        |
+        v
+[ Ingress ]
+        |
+        v
+[ Normalizer ]
+        |
+        v
+[ Canonical Event ]
+        |
+        v
+[ Rule Engine ]
+        |
+        v
+[ Connector ]
+        |
+        v
+System docelowy
+
+
+⸻
+
+4. Wymagania infrastrukturalne (TEST)
+
+|| Element || Wartość ||
+| Typ serwera | Application Server |
+| System operacyjny | Red Hat Enterprise Linux 9 |
+| CPU | 2 vCPU |
+| RAM | 4 GB |
+| Przestrzeń dyskowa | 50 GB |
+| Python | 3.9 |
+| DNS | jira-hpsm-integration.<domena> |
+| Protokół | HTTPS |
+
+⸻
+
+5. Komunikacja systemowa
+
+Jira Cloud
+	•	Inbound: webhooki HTTPS
+	•	Outbound: REST API (autoryzacja tokenowa – konto techniczne)
+
+HPSM (Service Manager)
+	•	Outbound: REST API lub SOAP
+	•	Inbound: polling zmian lub outbound web service (opcjonalnie)
+
+⸻
+
+6. Canonical Event – wspólny format danych
+
+Każde zdarzenie przychodzące jest normalizowane do wspólnego formatu JSON, niezależnego od systemu źródłowego.
+
+{
+  "id": "evt_20260206_001",
+  "source": "jira",
+  "type": "issue.updated",
+  "occurred_at": "2026-02-06T10:12:33Z",
+  "tenant": "test",
+  "correlation": {
+    "jira_issue_key": "SD-123",
+    "external_refs": {
+      "hpsm_incident_id": "IM1000123"
+    }
+  },
+  "actor": {
+    "account_id": "abc123",
+    "display_name": "Jan Kowalski"
+  },
+  "payload": {
+    "fields": {
+      "summary": "Brak dostępu do VPN",
+      "priority": "High",
+      "status": "In Progress"
+    },
+    "changed": ["status"]
+  },
+  "meta": {
+    "origin": "webhook",
+    "signature_ok": true
+  }
+}
+
+
+⸻
+
+7. Komponenty aplikacji
+
+7.1 Ingress
+	•	odbiór webhooków
+	•	pobieranie danych w trybie polling
+	•	walidacja źródła zdarzenia (secret / podpis)
+
+7.2 Normalizer
+	•	mapowanie danych źródłowych do canonical event
+	•	ujednolicenie nazw pól i typów zdarzeń
+
+7.3 Rule Engine
+	•	analiza zdarzeń
+	•	decyzja o wykonaniu akcji
+	•	routing do odpowiednich connectorów
+
+⸻
+
+8. Reguły integracyjne (przykład)
+
+rules:
+  - name: Jira → HPSM – synchronizacja statusu
+    when:
+      source: jira
+      type: issue.updated
+      changed_contains: status
+    actions:
+      - to: hpsm
+        action: update_incident_status
+        map:
+          incident_id: $.correlation.external_refs.hpsm_incident_id
+          status: $.payload.fields.status
+
+
+⸻
+
+9. Connectory systemowe
+
+Każdy system docelowy posiada dedykowany connector (adapter API).
+
+Przykładowe connectory
+	•	JiraConnector
+	•	HPSMConnector
+	•	ElasticConnector
+	•	ZabbixConnector
+	•	CMDBConnector
+
+Connector:
+	•	odbiera parametry z Rule Engine
+	•	wykonuje operację API
+	•	raportuje wynik do logów audytowych
+
+⸻
+
+10. Główny przepływ działania
+	1.	Odebranie zdarzenia (webhook / polling)
+	2.	Normalizacja do canonical event
+	3.	Analiza reguł
+	4.	Wykonanie akcji w systemach docelowych
+	5.	Logowanie i audyt operacji
+
+⸻
+
+11. Bezpieczeństwo
+	•	komunikacja szyfrowana (HTTPS)
+	•	dedykowane konta techniczne
+	•	minimalne uprawnienia
+	•	walidacja webhooków
+	•	brak trwałego przechowywania danych wrażliwych
+
+⸻
+
+12. Obsługa błędów i stabilność
+	•	retry z mechanizmem backoff
+	•	idempotencja zdarzeń
+	•	log błędów technicznych
+	•	możliwość wdrożenia dead-letter queue
+
+⸻
+
+13. Model utrzymania
+	•	aplikacja uruchamiana jako usługa systemowa (systemd)
+	•	rotacja logów
+	•	ręczny restart usługi
+	•	łatwa rozbudowa funkcjonalna
+
+⸻
+
+14. Plan rozwoju
+	•	obsługa załączników
+	•	monitoring i alerting
+	•	środowisko PROD
+	•	panel administracyjny
+	•	konteneryzacja (opcjonalnie)
+
+⸻
+
+15. Podsumowanie
+
+Integrator stanowi centralną, rozszerzalną platformę integracyjną, umożliwiającą spójną wymianę danych pomiędzy systemami IT, z zachowaniem bezpieczeństwa, skalowalności oraz niezależności technologicznej.
+
+⸻
+
+Jeśli chcesz, mogę w kolejnym kroku:
+	•	dorobić diagram architektury (draw.io / Confluence diagram)
+	•	skrócić to do Executive Summary (1 strona)
+	•	albo dopasować język pod IT Security / Architekta korporacyjnego
+
+Powiedz tylko 👉 co dalej ma być dodane do tej strony.
