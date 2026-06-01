@@ -1,238 +1,164 @@
-Jedziemy 💪
-Poniżej masz wersję 1:1 pod Confluence – w Confluence Markup / Markdown, gotową do wklejenia jako nową stronę.
-Układ, nagłówki i sekcje są dokładnie takie, jakie lubią architekci, Infra i Sec.
+h1. Plan Testów – Integracja Jira ↔ HPSM (Issue Type: ZZZ – Nowy Integrator Parent)
 
-⸻
+----
 
-Integrator systemów – platforma integracyjna
+{toc:minLevel=2|maxLevel=3}
 
-Jira Cloud ↔ HPSM (Service Manager) oraz inne systemy
+----
 
-⸻
+h2. 1. Informacje ogólne
 
-1. Cel rozwiązania
+|| Parametr || Wartość ||
+| Issue Type | ZZZ (Nowy Integrator Parent) |
+| Środowisko | Jira DC ↔ HPSM |
+| Zespół testowy | 8 osób |
+| Cel | Weryfikacja poprawności synchronizacji statusów i danych między Jirą a HPSM |
 
-Celem rozwiązania jest uruchomienie centralnego integratora systemów, umożliwiającego dwukierunkową synchronizację danych i zdarzeń pomiędzy:
-	•	Jira Cloud
-	•	HPSM (Service Manager)
-	•	innymi systemami IT (np. monitoring, CMDB, log management)
+----
 
-Integrator pełni rolę pośrednika aplikacyjnego, bez modyfikacji kodu systemów źródłowych i docelowych.
+h2. 2. Mapa statusów
 
-⸻
+h3. Statusy Jira (dostępne tranzycje)
 
-2. Zakres (MVP – środowisko TEST)
+{noformat}
+Draft → Edytowana → Zarejestrowana → Przyjęta → Realizacja → Niewykonana
+                                    ↓                        ↓
+                                 Anulowana               Wycofana
+                                                             ↓
+                                                         Wdrożone → Zweryfikowano
+{noformat}
 
-Obsługiwane kierunki integracji
-	•	Jira Cloud → HPSM
-	•	HPSM → Jira Cloud
-	•	Jira Cloud → systemy zewnętrzne (audyt / raportowanie – opcjonalnie)
+h3. Statusy HPSM (tranzycje dostępne z HPSM)
 
-Obsługiwane operacje
-	•	utworzenie zgłoszenia
-	•	aktualizacja pól (status, priorytet, opis)
-	•	synchronizacja komentarzy
-	•	mapowanie identyfikatorów referencyjnych
+Wszystkie statusy *z wyjątkiem*: Draft, Zweryfikowano
+Dodatkowe statusy dostępne wyłącznie z HPSM: *Odrzucone*, *Skompletowane*
+Tranzycja *Przyjęta* – wymagana akcja po stronie HPSM (Jira nie może samodzielnie przejść do tego statusu)
 
-⸻
+----
 
-3. Architektura logiczna
+h2. 3. Scenariusze testowe
 
-Integrator oparty jest o model event-driven, z wykorzystaniem zunifikowanego formatu danych (canonical event).
+----
 
-System źródłowy
-(Webhook / Polling)
-        |
-        v
-[ Ingress ]
-        |
-        v
-[ Normalizer ]
-        |
-        v
-[ Canonical Event ]
-        |
-        v
-[ Rule Engine ]
-        |
-        v
-[ Connector ]
-        |
-        v
-System docelowy
+h3. TC-01 – Happy Path po stronie Jiry
 
+*Opis:* Pełne przejście przez workflow z akcjami głównie po stronie Jiry. HPSM wykonuje tylko niezbędne minimum (tranzycja do Przyjęta).
 
-⸻
+*Warunek wstępny:* Brak istniejącego ZZZ dla danego użytkownika testowego.
 
-4. Wymagania infrastrukturalne (TEST)
+|| Krok || Akcja || System || Oczekiwany status Jira || Oczekiwany status HPSM || Wykonał || Wynik ||
+| 1 | Utwórz nowy ZZZ | Jira | Draft | — | | |
+| 2 | Uzupełnij wymagane pola i prześlij do edycji | Jira | Edytowana | Edytowana (sync) | | |
+| 3 | Zarejestruj zgłoszenie | Jira | Zarejestrowana | Zarejestrowana (sync) | | |
+| 4 | Przenieś do Przyjęta | *HPSM* | Przyjęta | Przyjęta | | |
+| 5 | Przenieś do Realizacja | Jira | Realizacja | Realizacja (sync) | | |
+| 6 | Przenieś do Wdrożone | Jira | Wdrożone | Wdrożone (sync) | | |
+| 7 | Przenieś do Zweryfikowano | Jira | Zweryfikowano | — (brak tranzycji z HPSM) | | |
 
-|| Element || Wartość ||
-| Typ serwera | Application Server |
-| System operacyjny | Red Hat Enterprise Linux 9 |
-| CPU | 2 vCPU |
-| RAM | 4 GB |
-| Przestrzeń dyskowa | 50 GB |
-| Python | 3.9 |
-| DNS | jira-hpsm-integration.<domena> |
-| Protokół | HTTPS |
+*Uwagi:*
+* Krok 4 – wymagana akcja w HPSM mimo że inicjator jest z Jiry
+* Zweryfikowano nie jest dostępne z HPSM – finalny status zamykany tylko w Jirze
 
-⸻
+----
 
-5. Komunikacja systemowa
+h3. TC-02 – Happy Path po stronie HPSM
 
-Jira Cloud
-	•	Inbound: webhooki HTTPS
-	•	Outbound: REST API (autoryzacja tokenowa – konto techniczne)
+*Opis:* ZZZ tworzony z Jiry, ale cały dalszy workflow prowadzony z HPSM.
 
-HPSM (Service Manager)
-	•	Outbound: REST API lub SOAP
-	•	Inbound: polling zmian lub outbound web service (opcjonalnie)
+*Warunek wstępny:* ZZZ w statusie Draft.
 
-⸻
+|| Krok || Akcja || System || Oczekiwany status Jira || Oczekiwany status HPSM || Wykonał || Wynik ||
+| 1 | Utwórz nowy ZZZ | Jira | Draft | — | | |
+| 2 | Przenieś do Edytowana | HPSM | Edytowana | Edytowana | | |
+| 3 | Przenieś do Zarejestrowana | HPSM | Zarejestrowana | Zarejestrowana | | |
+| 4 | Przenieś do Przyjęta | HPSM | Przyjęta | Przyjęta | | |
+| 5 | Przenieś do Realizacja | HPSM | Realizacja | Realizacja | | |
+| 6 | Przenieś do Wdrożone | HPSM | Wdrożone | Wdrożone | | |
+| 7 | Oznacz jako Skompletowane | HPSM | Skompletowane (sync) | Skompletowane | | |
 
-6. Canonical Event – wspólny format danych
+*Uwagi:*
+* Skompletowane dostępne wyłącznie z HPSM – weryfikujemy czy status synchronizuje się do Jiry
+* Zweryfikowano pomijamy – niedostępne z HPSM
 
-Każde zdarzenie przychodzące jest normalizowane do wspólnego formatu JSON, niezależnego od systemu źródłowego.
+----
 
-{
-  "id": "evt_20260206_001",
-  "source": "jira",
-  "type": "issue.updated",
-  "occurred_at": "2026-02-06T10:12:33Z",
-  "tenant": "test",
-  "correlation": {
-    "jira_issue_key": "SD-123",
-    "external_refs": {
-      "hpsm_incident_id": "IM1000123"
-    }
-  },
-  "actor": {
-    "account_id": "abc123",
-    "display_name": "Jan Kowalski"
-  },
-  "payload": {
-    "fields": {
-      "summary": "Brak dostępu do VPN",
-      "priority": "High",
-      "status": "In Progress"
-    },
-    "changed": ["status"]
-  },
-  "meta": {
-    "origin": "webhook",
-    "signature_ok": true
-  }
-}
+h3. TC-03 – Tranzycja do Anulowanej (ścieżka Jira)
 
+*Opis:* Weryfikacja możliwości anulowania ZZZ ze statusów pośrednich z poziomu Jiry.
 
-⸻
+*Warunek wstępny:* Aktywny ZZZ.
 
-7. Komponenty aplikacji
+|| Krok || Akcja || System || Status startowy || Oczekiwany status Jira || Oczekiwany status HPSM || Wykonał || Wynik ||
+| 1 | Anuluj z Draft | Jira | Draft | Anulowana | Anulowana (sync) | | |
+| 2 | Anuluj z Edytowana | Jira | Edytowana | Anulowana | Anulowana (sync) | | |
+| 3 | Anuluj z Zarejestrowana | Jira | Zarejestrowana | Anulowana | Anulowana (sync) | | |
 
-7.1 Ingress
-	•	odbiór webhooków
-	•	pobieranie danych w trybie polling
-	•	walidacja źródła zdarzenia (secret / podpis)
+*Uwagi:*
+* Każdy podtest wymaga osobnego ZZZ (lub resetu środowiska)
+* Zweryfikować czy HPSM poprawnie odbiera status Anulowana
 
-7.2 Normalizer
-	•	mapowanie danych źródłowych do canonical event
-	•	ujednolicenie nazw pól i typów zdarzeń
+----
 
-7.3 Rule Engine
-	•	analiza zdarzeń
-	•	decyzja o wykonaniu akcji
-	•	routing do odpowiednich connectorów
+h3. TC-04 – Tranzycja do Wycofanej / Niewykonanej (ścieżka Jira)
 
-⸻
+*Opis:* Weryfikacja ścieżek zamknięcia negatywnego z poziomu Jiry po etapie Realizacji.
 
-8. Reguły integracyjne (przykład)
+*Warunek wstępny:* ZZZ w statusie Realizacja.
 
-rules:
-  - name: Jira → HPSM – synchronizacja statusu
-    when:
-      source: jira
-      type: issue.updated
-      changed_contains: status
-    actions:
-      - to: hpsm
-        action: update_incident_status
-        map:
-          incident_id: $.correlation.external_refs.hpsm_incident_id
-          status: $.payload.fields.status
+|| Krok || Akcja || System || Oczekiwany status Jira || Oczekiwany status HPSM || Wykonał || Wynik ||
+| 1 | Przenieś do Niewykonana | Jira | Niewykonana | Niewykonana (sync) | | |
+| 2 | Utwórz nowy ZZZ, doprowadź do Realizacja, przenieś do Wycofana | Jira | Wycofana | Wycofana (sync) | | |
 
+*Uwagi:*
+* Zweryfikować czy oba statusy kończące są widoczne i poprawnie mapowane w HPSM
 
-⸻
+----
 
-9. Connectory systemowe
+h3. TC-05 – Tranzycja do Odrzucone (ścieżka HPSM)
 
-Każdy system docelowy posiada dedykowany connector (adapter API).
+*Opis:* Weryfikacja statusu Odrzucone, dostępnego wyłącznie z HPSM.
 
-Przykładowe connectory
-	•	JiraConnector
-	•	HPSMConnector
-	•	ElasticConnector
-	•	ZabbixConnector
-	•	CMDBConnector
+*Warunek wstępny:* ZZZ w statusie Zarejestrowana lub Przyjęta.
 
-Connector:
-	•	odbiera parametry z Rule Engine
-	•	wykonuje operację API
-	•	raportuje wynik do logów audytowych
+|| Krok || Akcja || System || Status startowy || Oczekiwany status Jira || Oczekiwany status HPSM || Wykonał || Wynik ||
+| 1 | Odrzuć z Zarejestrowana | HPSM | Zarejestrowana | Odrzucone (sync) | Odrzucone | | |
+| 2 | Odrzuć z Przyjęta | HPSM | Przyjęta | Odrzucone (sync) | Odrzucone | | |
 
-⸻
+*Uwagi:*
+* Odrzucone nie jest dostępne z Jiry – upewnić się, że Jira nie wyświetla tej tranzycji użytkownikowi
+* Kluczowe: synchronizacja statusu z HPSM → Jira musi zadziałać poprawnie
 
-10. Główny przepływ działania
-	1.	Odebranie zdarzenia (webhook / polling)
-	2.	Normalizacja do canonical event
-	3.	Analiza reguł
-	4.	Wykonanie akcji w systemach docelowych
-	5.	Logowanie i audyt operacji
+----
 
-⸻
+h2. 4. Podział testów na osoby
 
-11. Bezpieczeństwo
-	•	komunikacja szyfrowana (HTTPS)
-	•	dedykowane konta techniczne
-	•	minimalne uprawnienia
-	•	walidacja webhooków
-	•	brak trwałego przechowywania danych wrażliwych
+|| # || Scenariusz || Osoba ||
+| 1 | TC-01 – Happy Path Jira | |
+| 2 | TC-01 – Happy Path Jira (repeat / drugi użytkownik) | |
+| 3 | TC-02 – Happy Path HPSM | |
+| 4 | TC-02 – Happy Path HPSM (repeat / drugi użytkownik) | |
+| 5 | TC-03 – Anulowana (wszystkie 3 podzadania) | |
+| 6 | TC-04 – Wycofana / Niewykonana | |
+| 7 | TC-05 – Odrzucone (oba podzadania) | |
+| 8 | Testy regresji / re-test błędów | |
 
-⸻
+----
 
-12. Obsługa błędów i stabilność
-	•	retry z mechanizmem backoff
-	•	idempotencja zdarzeń
-	•	log błędów technicznych
-	•	możliwość wdrożenia dead-letter queue
+h2. 5. Kryteria akceptacji
 
-⸻
+* Każda tranzycja zainicjowana w Jirze → status poprawnie synchronizuje się do HPSM w czasie \<X sek.
+* Każda tranzycja zainicjowana w HPSM → status poprawnie synchronizuje się do Jiry w czasie \<X sek.
+* Statusy dostępne wyłącznie z HPSM (Odrzucone, Skompletowane, Przyjęta) nie są widoczne jako tranzycje w Jirze
+* Statusy Draft i Zweryfikowano nie są dostępne z HPSM
+* Pola wymagane (np. komentarz przy Anulowanej/Odrzucone) są walidowane po obu stronach
 
-13. Model utrzymania
-	•	aplikacja uruchamiana jako usługa systemowa (systemd)
-	•	rotacja logów
-	•	ręczny restart usługi
-	•	łatwa rozbudowa funkcjonalna
+----
 
-⸻
+h2. 6. Defekty i uwagi
 
-14. Plan rozwoju
-	•	obsługa załączników
-	•	monitoring i alerting
-	•	środowisko PROD
-	•	panel administracyjny
-	•	konteneryzacja (opcjonalnie)
+|| ID || Scenariusz || Opis || Priorytet || Status || Zgłaszający ||
+| DEF-001 | | | | | |
 
-⸻
+----
 
-15. Podsumowanie
-
-Integrator stanowi centralną, rozszerzalną platformę integracyjną, umożliwiającą spójną wymianę danych pomiędzy systemami IT, z zachowaniem bezpieczeństwa, skalowalności oraz niezależności technologicznej.
-
-⸻
-
-Jeśli chcesz, mogę w kolejnym kroku:
-	•	dorobić diagram architektury (draw.io / Confluence diagram)
-	•	skrócić to do Executive Summary (1 strona)
-	•	albo dopasować język pod IT Security / Architekta korporacyjnego
-
-Powiedz tylko 👉 co dalej ma być dodane do tej strony.
+_Dokument przygotowany na potrzeby testów integracji Jira DC ↔ HPSM. Wersja 1.0._
